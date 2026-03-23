@@ -10,10 +10,12 @@ Demonstrates:
 
 Usage:
     python examples/offline_analysis_example.py
+    python examples/offline_analysis_example.py --output-dir ./results
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import tempfile
 from pathlib import Path
@@ -27,7 +29,18 @@ from vla_ood_demo import SyntheticFrameSource, make_proxy_encoder
 from vla_failure_mode_identifier import TakeoverLogger, FailureModeIdentifier
 
 
+def parse_args():
+    p = argparse.ArgumentParser(description="Offline Failure Mode Analysis Example")
+    p.add_argument("--output-dir", type=str, default=".",
+                   help="Directory to save outputs (default: current directory)")
+    return p.parse_args()
+
+
 def main():
+    args = parse_args()
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     rng = np.random.default_rng(42)
     source = SyntheticFrameSource(rng)
     encoder_fn = make_proxy_encoder()
@@ -82,12 +95,12 @@ def main():
         # 5. Print and save brief
         identifier.print_brief()
 
-        brief_path = Path(log_dir) / "failure_modes.json"
+        brief_path = output_dir / "failure_modes.json"
         identifier.save_brief(str(brief_path))
         print(f"\n[5] Brief saved → {brief_path}")
 
         # 6. Plot embedding space
-        plot_path = Path(log_dir) / "failure_embedding_space.png"
+        plot_path = output_dir / "failure_embedding_space.png"
         identifier.plot_embedding_space(episodes, save_path=str(plot_path))
 
     print("\n" + "=" * 60)
