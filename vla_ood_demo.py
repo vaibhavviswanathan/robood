@@ -607,6 +607,8 @@ def parse_args():
                    help="Milliseconds between frames in live plot")
     p.add_argument("--save-gif", action="store_true",
                    help="Save the demo as ood_demo.gif instead of showing live")
+    p.add_argument("--save-png", action="store_true",
+                   help="Save a static sample frames comparison to sample_frames.png")
     return p.parse_args()
 
 
@@ -668,8 +670,31 @@ def main():
         print(f"  hard-OOD score={r.score:8.2f}  is_ood={r.is_ood}")
 
     # ------------------------------------------------------------------
-    # 4. Launch live dashboard
+    # 4. Save static comparison or launch live dashboard
     # ------------------------------------------------------------------
+    if args.save_png:
+        print("\n[Demo] saving static sample frames → sample_frames.png")
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+        for ax, (gen, label) in zip(axes, [
+            (source.in_dist_frame, "In-Distribution"),
+            (source.mild_ood_frame, "Mild OOD"),
+            (source.hard_ood_frame, "Hard OOD"),
+        ]):
+            frame = gen()
+            r = detector.score(frame)
+            ax.imshow(np.clip(frame, 0, 1))
+            color = "#2ecc71" if not r.is_ood else "#e74c3c"
+            status = "OK" if not r.is_ood else "OOD"
+            ax.set_title(f"{label}\nscore={r.score:.1f} [{status}]",
+                         color=color, fontsize=11)
+            ax.axis("off")
+        fig.suptitle("VLA OOD Detection — Sample Frames", fontsize=13)
+        fig.tight_layout()
+        fig.savefig("sample_frames.png", dpi=120)
+        plt.close(fig)
+        print("[Demo] saved sample_frames.png")
+        return
+
     print("\n[Demo] starting live dashboard ...\n")
     print(f"  {'frame':<7} | {'phase':<20s} | {'score':>10} | {'τ':>8} | status")
     print("  " + "-" * 60)
