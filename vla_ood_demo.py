@@ -588,9 +588,9 @@ class OODDemoDashboard:
 
 def parse_args():
     p = argparse.ArgumentParser(description="VLA OOD Detection Live Demo")
-    p.add_argument("--mode", choices=["synthetic", "sim"],
+    p.add_argument("--mode", choices=["synthetic", "sim", "lerobot", "robomimic", "disk"],
                    default="synthetic",
-                   help="Frame source: synthetic (no deps) or sim (robosuite)")
+                   help="Frame source: synthetic, sim, lerobot, robomimic, or disk")
     p.add_argument("--encoder", choices=["proxy", "dinov2"],
                    default="proxy",
                    help="Encoder: proxy (no deps) or dinov2 (needs torch)")
@@ -609,6 +609,15 @@ def parse_args():
                    help="Save the demo as ood_demo.gif instead of showing live")
     p.add_argument("--save-png", action="store_true",
                    help="Save a static sample frames comparison to sample_frames.png")
+    p.add_argument("--dataset-repo", type=str, default="lerobot/pusht_image",
+                   help="LeRobot dataset repo for in-dist (lerobot mode)")
+    p.add_argument("--mild-ood-repo", type=str,
+                   default="lerobot/utokyo_xarm_pick_and_place",
+                   help="LeRobot dataset repo for mild OOD (lerobot mode)")
+    p.add_argument("--dataset-path", type=str, default=None,
+                   help="Path to HDF5 file (robomimic) or image dir (disk)")
+    p.add_argument("--max-frames", type=int, default=1000,
+                   help="Max frames to cache per OOD level")
     return p.parse_args()
 
 
@@ -628,6 +637,36 @@ def main():
     # ------------------------------------------------------------------
     if args.mode == "sim":
         source = RobosuiteFrameSource()
+    elif args.mode == "lerobot":
+        from frame_sources import LeRobotFrameSource
+        source = LeRobotFrameSource(
+            in_dist_repo=args.dataset_repo,
+            mild_ood_repo=args.mild_ood_repo,
+            img_size=224,
+            max_frames=args.max_frames,
+            rng=rng,
+        )
+    elif args.mode == "robomimic":
+        from frame_sources import RobomimicFrameSource
+        if not args.dataset_path:
+            print("[Error] --dataset-path required for robomimic mode")
+            sys.exit(1)
+        source = RobomimicFrameSource(
+            hdf5_path=args.dataset_path,
+            img_size=224,
+            max_frames=args.max_frames,
+            rng=rng,
+        )
+    elif args.mode == "disk":
+        from frame_sources import DiskFrameSource
+        if not args.dataset_path:
+            print("[Error] --dataset-path required for disk mode")
+            sys.exit(1)
+        source = DiskFrameSource(
+            in_dist_dir=args.dataset_path,
+            img_size=224,
+            rng=rng,
+        )
     else:
         source = SyntheticFrameSource(rng)
 
