@@ -105,6 +105,8 @@ class LeRobotFrameSource:
         LeRobot dataset repo for in-distribution frames.
     mild_ood_repo : str
         LeRobot dataset repo for mild OOD frames.
+    hard_ood_repo : str or None
+        LeRobot dataset repo for hard OOD frames. None = use ImageNet-50.
     image_key : str or None
         Key for image observations. None = auto-detect first image key.
     img_size : int
@@ -118,6 +120,7 @@ class LeRobotFrameSource:
         self,
         in_dist_repo: str = "lerobot/pusht_image",
         mild_ood_repo: str = "lerobot/utokyo_xarm_pick_and_place",
+        hard_ood_repo: Optional[str] = None,
         image_key: Optional[str] = None,
         img_size: int = 224,
         max_frames: int = 1000,
@@ -125,6 +128,7 @@ class LeRobotFrameSource:
     ):
         self.in_dist_repo = in_dist_repo
         self.mild_ood_repo = mild_ood_repo
+        self.hard_ood_repo = hard_ood_repo
         self.image_key = image_key
         self.img_size = img_size
         self.max_frames = max_frames
@@ -132,8 +136,12 @@ class LeRobotFrameSource:
 
         self._in_dist_frames: Optional[list] = None
         self._mild_ood_frames: Optional[list] = None
-        self._imagenet = ImageNetOODSource(
-            max_frames=max_frames, img_size=img_size, rng=self.rng)
+        self._hard_ood_frames: Optional[list] = None
+        if hard_ood_repo is None:
+            self._imagenet = ImageNetOODSource(
+                max_frames=max_frames, img_size=img_size, rng=self.rng)
+        else:
+            self._imagenet = None
 
     def _load_repo(self, repo: str, label: str) -> list:
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -198,7 +206,16 @@ class LeRobotFrameSource:
         idx = self.rng.integers(0, len(self._mild_ood_frames))
         return self._mild_ood_frames[idx]
 
+    def _ensure_hard_ood(self):
+        if self._hard_ood_frames is None and self.hard_ood_repo is not None:
+            self._hard_ood_frames = self._load_repo(
+                self.hard_ood_repo, "hard-OOD")
+
     def hard_ood_frame(self) -> np.ndarray:
+        if self.hard_ood_repo is not None:
+            self._ensure_hard_ood()
+            idx = self.rng.integers(0, len(self._hard_ood_frames))
+            return self._hard_ood_frames[idx]
         return self._imagenet.hard_ood_frame()
 
 

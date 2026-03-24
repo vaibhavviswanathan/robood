@@ -614,6 +614,8 @@ def parse_args():
     p.add_argument("--mild-ood-repo", type=str,
                    default="lerobot/utokyo_xarm_pick_and_place",
                    help="LeRobot dataset repo for mild OOD (lerobot mode)")
+    p.add_argument("--hard-ood-repo", type=str, default=None,
+                   help="LeRobot dataset repo for hard OOD (default: ImageNet-50)")
     p.add_argument("--dataset-path", type=str, default=None,
                    help="Path to HDF5 file (robomimic) or image dir (disk)")
     p.add_argument("--max-frames", type=int, default=1000,
@@ -642,6 +644,7 @@ def main():
         source = LeRobotFrameSource(
             in_dist_repo=args.dataset_repo,
             mild_ood_repo=args.mild_ood_repo,
+            hard_ood_repo=args.hard_ood_repo,
             img_size=224,
             max_frames=args.max_frames,
             rng=rng,
