@@ -28,13 +28,46 @@ from vla_ood_detector import VLAOODDetector
 # Frame generation (reuse demo sources)
 # ---------------------------------------------------------------------------
 
-def make_synthetic_frames(n: int, kind: str, rng: np.random.Generator) -> list:
-    from vla_ood_demo import SyntheticFrameSource
-    source = SyntheticFrameSource(rng)
+def _frames_from_source(source, n: int, kind: str) -> list:
     gen = {"in_dist": source.in_dist_frame,
            "mild_ood": source.mild_ood_frame,
            "hard_ood": source.hard_ood_frame}[kind]
     return [gen() for _ in range(n)]
+
+
+def make_synthetic_frames(n: int, kind: str, rng: np.random.Generator) -> list:
+    from vla_ood_demo import SyntheticFrameSource
+    return _frames_from_source(SyntheticFrameSource(rng), n, kind)
+
+
+def make_source(mode: str, args) -> object:
+    """Build frame source from CLI args. Returns an object with the 3-method interface."""
+    if mode == "synthetic":
+        from vla_ood_demo import SyntheticFrameSource
+        return SyntheticFrameSource(np.random.default_rng(args.seed))
+    elif mode == "lerobot":
+        from frame_sources import LeRobotFrameSource
+        return LeRobotFrameSource(
+            in_dist_repo=args.dataset_repo,
+            mild_ood_repo=args.mild_ood_repo,
+            max_frames=args.max_frames,
+            rng=np.random.default_rng(args.seed),
+        )
+    elif mode == "robomimic":
+        from frame_sources import RobomimicFrameSource
+        return RobomimicFrameSource(
+            hdf5_path=args.dataset_path,
+            max_frames=args.max_frames,
+            rng=np.random.default_rng(args.seed),
+        )
+    elif mode == "disk":
+        from frame_sources import DiskFrameSource
+        return DiskFrameSource(
+            in_dist_dir=args.dataset_path,
+            rng=np.random.default_rng(args.seed),
+        )
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
 
 
 def make_encoder(name: str):
@@ -149,9 +182,10 @@ def run_evaluation(args):
 
     # Generate frames
     print(f"[Eval] generating frames ...")
-    fit_images = make_synthetic_frames(args.n_fit, "in_dist", rng)
-    in_dist_eval = make_synthetic_frames(args.n_eval, "in_dist", rng)
-    ood_eval = make_synthetic_frames(args.n_eval, "hard_ood", rng)
+    source = make_source(args.mode, args)
+    fit_images = _frames_from_source(source, args.n_fit, "in_dist")
+    in_dist_eval = _frames_from_source(source, args.n_eval, "in_dist")
+    ood_eval = _frames_from_source(source, args.n_eval, "hard_ood")
 
     configs = []
 
@@ -212,8 +246,9 @@ def run_evaluation(args):
 
 def parse_args():
     p = argparse.ArgumentParser(description="OOD Detection Evaluation")
-    p.add_argument("--mode", choices=["synthetic"], default="synthetic",
-                   help="Frame source")
+    p.add_argument("--mode", choices=["synthetic", "lerobot", "robomimic", "disk"],
+                   default="synthetic",
+                   help="Frame source: synthetic, lerobot, robomimic, or disk")
     p.add_argument("--encoder", choices=["proxy", "dinov2"], default="proxy",
                    help="Encoder to use")
     p.add_argument("--n-fit", type=int, default=200,
@@ -225,6 +260,15 @@ def parse_args():
                    help="Sweep over PCA and KNN-k configurations")
     p.add_argument("--output", type=str, default=None,
                    help="Save results to JSON file")
+    p.add_argument("--dataset-repo", type=str, default="lerobot/pusht_image",
+                   help="LeRobot dataset repo for in-dist (lerobot mode)")
+    p.add_argument("--mild-ood-repo", type=str,
+                   default="lerobot/utokyo_xarm_pick_and_place",
+                   help="LeRobot dataset repo for mild OOD (lerobot mode)")
+    p.add_argument("--dataset-path", type=str, default=None,
+                   help="Path to HDF5 file (robomimic) or image dir (disk)")
+    p.add_argument("--max-frames", type=int, default=1000,
+                   help="Max frames to cache per OOD level")
     return p.parse_args()
 
 

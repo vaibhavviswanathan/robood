@@ -14,6 +14,7 @@ vlm = ["anthropic", "pillow"]
 encoder = ["torch", "torchvision"]
 clustering = ["hdbscan"]
 sim = ["robosuite"]
+datasets = ["lerobot", "datasets", "Pillow", "h5py"]
 dev = ["pytest"]
 
 [tool.hatch.build.targets.wheel]
@@ -23,6 +24,7 @@ only-include = [
     "vla_failure_mode_identifier.py",
     "vla_ood_demo.py",
     "evaluate_ood.py",
+    "frame_sources.py",
 ]
 
 [build-system]
