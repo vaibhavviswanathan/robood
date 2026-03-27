@@ -40,74 +40,10 @@ from matplotlib.animation import FuncAnimation
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Paste / import the detector (or import from vla_ood_detector if same dir)
+# Import detector from the core module
 # ---------------------------------------------------------------------------
-try:
-    sys.path.insert(0, str(Path(__file__).parent))
-    from vla_ood_detector import VLAOODDetector, OODResult
-except ImportError:
-    # Inline minimal version so the demo is self-contained
-    from dataclasses import dataclass, field
-    from typing import Callable, Optional
-
-    @dataclass
-    class OODResult:
-        score: float
-        is_ood: bool
-        method: str
-        threshold: float
-        embedding: np.ndarray = field(repr=False)
-
-    class VLAOODDetector:
-        def __init__(self, encoder_fn, method="mahalanobis",
-                     threshold_percentile=95.0, pca_components=None):
-            self.encoder_fn = encoder_fn
-            self.method = method
-            self.threshold_percentile = threshold_percentile
-            self.pca_components = pca_components
-            self._is_fitted = False
-            self._mean = self._cov_inv = self._threshold = self._pca = None
-
-        def fit(self, images, verbose=True):
-            embeddings = np.stack([self._encode(i) for i in images])
-            if self.pca_components:
-                embeddings = self._fit_pca(embeddings)
-            self._mean = embeddings.mean(0)
-            cov = np.cov(embeddings, rowvar=False) + np.eye(embeddings.shape[1]) * 1e-5
-            self._cov_inv = np.linalg.inv(cov)
-            scores = self._score_all(embeddings)
-            self._threshold = float(np.percentile(scores, self.threshold_percentile))
-            self._is_fitted = True
-            if verbose:
-                print(f"[Detector] fitted  τ={self._threshold:.3f}")
-            return self
-
-        def score(self, image):
-            z = self._encode(image)
-            if self._pca:
-                z = self._pca.transform(z[None])[0]
-            d = self._mahal(z)
-            return OODResult(float(d), d >= self._threshold,
-                             self.method, self._threshold, z)
-
-        def _mahal(self, z):
-            diff = z - self._mean
-            return float(diff @ self._cov_inv @ diff)
-
-        def _score_all(self, E):
-            return np.array([self._mahal(z) for z in E])
-
-        def _encode(self, image):
-            z = self.encoder_fn(image)
-            if hasattr(z, "numpy"): z = z.numpy()
-            z = np.asarray(z, dtype=np.float32).ravel()
-            n = np.linalg.norm(z)
-            return z / n if n > 1e-8 else z
-
-        def _fit_pca(self, E):
-            from sklearn.decomposition import PCA
-            self._pca = PCA(n_components=self.pca_components, whiten=True)
-            return self._pca.fit_transform(E)
+sys.path.insert(0, str(Path(__file__).parent))
+from vla_ood_detector import VLAOODDetector, OODResult
 
 
 # ===========================================================================
@@ -492,7 +428,8 @@ class OODDemoDashboard:
 
         # Right top: score trace
         self.ax_score = self.fig.add_subplot(gs[0, 1])
-        self.ax_score.set_title("Mahalanobis OOD score",
+        method_label = self.detector.method.capitalize()
+        self.ax_score.set_title(f"{method_label} OOD score",
                                 fontsize=10, color="#aaa", pad=6)
         self.ax_score.set_xlim(0, self.N_FRAMES)
         self.ax_score.set_xlabel("frame", fontsize=9)
@@ -657,6 +594,9 @@ def parse_args():
     p.add_argument("--encoder", choices=["proxy", "dinov2"],
                    default="proxy",
                    help="Encoder: proxy (no deps) or dinov2 (needs torch)")
+    p.add_argument("--method", choices=["mahalanobis", "knn"],
+                   default="mahalanobis",
+                   help="OOD scoring method: mahalanobis or knn")
     p.add_argument("--n-fit", type=int, default=300,
                    help="Number of in-dist frames to fit the detector on")
     p.add_argument("--pca", type=int, default=32,
@@ -667,6 +607,8 @@ def parse_args():
                    help="Milliseconds between frames in live plot")
     p.add_argument("--save-gif", action="store_true",
                    help="Save the demo as ood_demo.gif instead of showing live")
+    p.add_argument("--save-png", action="store_true",
+                   help="Save a static sample frames comparison to sample_frames.png")
     return p.parse_args()
 
 
@@ -677,7 +619,7 @@ def main():
     print("\n" + "=" * 60)
     print("  VLA OOD Detection — Live Demo")
     print("=" * 60)
-    print(f"  mode={args.mode}  encoder={args.encoder}  "
+    print(f"  mode={args.mode}  encoder={args.encoder}  method={args.method}  "
           f"n_fit={args.n_fit}  pca={args.pca}")
     print()
 
@@ -712,7 +654,7 @@ def main():
 
     detector = VLAOODDetector(
         encoder_fn=encoder_fn,
-        method="mahalanobis",
+        method=args.method,
         threshold_percentile=args.threshold_pct,
         pca_components=args.pca if args.pca > 0 else None,
     )
@@ -728,8 +670,31 @@ def main():
         print(f"  hard-OOD score={r.score:8.2f}  is_ood={r.is_ood}")
 
     # ------------------------------------------------------------------
-    # 4. Launch live dashboard
+    # 4. Save static comparison or launch live dashboard
     # ------------------------------------------------------------------
+    if args.save_png:
+        print("\n[Demo] saving static sample frames → sample_frames.png")
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+        for ax, (gen, label) in zip(axes, [
+            (source.in_dist_frame, "In-Distribution"),
+            (source.mild_ood_frame, "Mild OOD"),
+            (source.hard_ood_frame, "Hard OOD"),
+        ]):
+            frame = gen()
+            r = detector.score(frame)
+            ax.imshow(np.clip(frame, 0, 1))
+            color = "#2ecc71" if not r.is_ood else "#e74c3c"
+            status = "OK" if not r.is_ood else "OOD"
+            ax.set_title(f"{label}\nscore={r.score:.1f} [{status}]",
+                         color=color, fontsize=11)
+            ax.axis("off")
+        fig.suptitle("VLA OOD Detection — Sample Frames", fontsize=13)
+        fig.tight_layout()
+        fig.savefig("sample_frames.png", dpi=120)
+        plt.close(fig)
+        print("[Demo] saved sample_frames.png")
+        return
+
     print("\n[Demo] starting live dashboard ...\n")
     print(f"  {'frame':<7} | {'phase':<20s} | {'score':>10} | {'τ':>8} | status")
     print("  " + "-" * 60)
